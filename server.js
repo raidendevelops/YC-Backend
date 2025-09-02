@@ -14,9 +14,23 @@ let onlineUsers = 0;
 wss.on("connection", (ws) => {
   onlineUsers++;
   console.log("User connected:", onlineUsers);
-
-  // notify all clients
   broadcastCount();
+
+  ws.on("message", (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data.type === "chat") {
+        // Broadcast chat message to all clients
+        broadcast({
+          type: "chat",
+          from: data.from,
+          text: data.text,
+        });
+      }
+    } catch (err) {
+      console.error("Invalid message:", err);
+    }
+  });
 
   ws.on("close", () => {
     onlineUsers = Math.max(onlineUsers - 1, 0);
@@ -26,7 +40,11 @@ wss.on("connection", (ws) => {
 });
 
 function broadcastCount() {
-  const message = JSON.stringify({ type: "count", count: onlineUsers });
+  broadcast({ type: "count", count: onlineUsers });
+}
+
+function broadcast(data) {
+  const message = JSON.stringify(data);
   wss.clients.forEach((client) => {
     if (client.readyState === 1) {
       client.send(message);
@@ -34,11 +52,3 @@ function broadcastCount() {
   });
 }
 
-app.get("/", (req, res) => {
-  res.send("YeahChat backend is running 🚀");
-});
-
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`YeahChat backend running on port ${PORT}`);
-});
