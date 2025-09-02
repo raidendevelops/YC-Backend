@@ -3,7 +3,7 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import cors from "cors";
 import fs from "fs";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 const app = express();
 const server = createServer(app);
