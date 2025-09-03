@@ -3,7 +3,6 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import cors from "cors";
 import fs from "fs";
-import bcrypt from "bcryptjs";
 
 const app = express();
 const server = createServer(app);
@@ -22,34 +21,77 @@ if (fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify({}));
 }
 
+// Helper: fake “hashing” with base64
+function encodePassword(password) {
+  return Buffer.from(password).toString("base64");
+}
+
 // === Signup endpoint ===
-app.post("/signup", async (req, res) => {
+app.post("/signup", (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Missing fields" });
   if (users[username]) return res.status(400).json({ error: "Username taken" });
 
-  const hash = await bcrypt.hash(password, 10);
-  users[username] = { password: hash };
+  users[username] = { password: encodePassword(password) };
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
   res.json({ success: true });
 });
 
 // === Login endpoint ===
-app.post("/login", async (req, res) => {
+app.post("/login", (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Missing fields" });
 
   const user = users[username];
   if (!user) return res.status(400).json({ error: "User not found" });
 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ error: "Invalid password" });
+  if (encodePassword(password) !== user.password) {
+    return res.status(400).json({ error: "Invalid password" });
+  }
 
   res.json({ success: true });
 });
 
-// === WebSocket / chat code remains the same ===
-// ... existing wss.on("connection") logic
+// === WebSocket logic ===
+let onlineUsers = 0;
+
+wss.on("connection", (ws) => {
+  onlineUsers++;
+  broadcastCount();
+
+  ws.on("message", (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data.type === "chat") {
+        broadcast({
+          type: "chat",
+          from: data.from,
+          text: data.text,
+        });
+      }
+    } catch (err) {
+      console.error("Invalid message:", err);
+    }
+  });
+
+  ws.on("close", () => {
+    onlineUsers = Math.max(onlineUsers - 1, 0);
+    broadcastCount();
+  });
+});
+
+function broadcastCount() {
+  broadcast({ type: "count", count: onlineUsers });
+}
+
+function broadcast(data) {
+  const message = JSON.stringify(data);
+  wss.clients.forEach((client) => {
+    if (client.readyState === 1) {
+      client.send(message);
+    }
+  });
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
